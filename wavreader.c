@@ -8,19 +8,21 @@
 #include <errno.h>
 
 /* Loads a .wav file at **path** into a newly allocated array of floats at
- * **wavev** of a length written to **wavec**. This may only load a mono-
- * channeled, 16-bit, linear-pcm .wav file.
- *
- * Returns 0 on success, 1 if a standard library operation failed, in which case
- * errno will not be modified after the failing call, and 2 if the format of the
- * .wav file is invalid. */
+**wavev** of a length written to **wavec**. This may only load a mono-
+channeled, 16-bit, linear-pcm .wav file.
+
+Returns 0 on success, 1 if a standard library operation failed, in which case
+errno will not be modified after the failing call, and 2 if the format of the
+.wav file is invalid. */
 static int load_waveform(const char * path, unsigned int wavec, float * wavev);
 
 /* For each given float ranging from 0 to 1, multiply it by 16 and return the
- * floored result. */
+floored result. */
 static int print_hex(unsigned int wavec, float * wavev);
 
-
+/* Available options:
+	-i list input files.
+	-s specify length of printed hex sequence. */
 void main(int argc, char * * argv){
 	int option;
 	unsigned int path_count = 0;
@@ -105,7 +107,7 @@ static int print_hex(unsigned int wavec, float * wavev){
 static int load_waveform(const char * path, unsigned int wavec, float * /*{{{*/
 wavev){
 /* Takes a pointer and reads four bytes following that pointer as though it were
- * a little-endian unsigned 32-bit integer. */
+a little-endian unsigned 32-bit integer. */
 #define READ_UINT32(buf) ((uint32_t) *((uint8_t *) buf) + (uint32_t) (*( \
 (unsigned char *) buf + 1) << 8) + (uint32_t) (*((unsigned char *) buf + 2) \
 << 16) + (uint32_t) (*((unsigned char *) buf + 3) << 24))
@@ -133,16 +135,16 @@ wavev){
 
 	/* Assert that the RIFF chunk has a WAVE identifier. */
 	if(chunk_size < 4) {error = 2; goto CLOSE;}
-	if(!fgets(buffer, 5, file)) {error = 1; goto CLOSE;}
 	if(READ_UINT32(&buffer[0]) != 0x45564157) {error = 2; goto CLOSE;}
+	if(!fgets(buffer, 5, file)) {error = 1; goto CLOSE;}
 
 	/* Read the format header. */
 	long fmt_chunk_size;
 	if(chunk_size < 12) {error = 2; goto CLOSE;}
 	if(!fgets(buffer, 9, file)) {error = 1; goto CLOSE;}
 	if(READ_UINT32(&buffer[0]) != 0x20746d66) {error = 2; goto CLOSE;}
-	fmt_chunk_size = READ_UINT32(&buffer[4]);
 
+	fmt_chunk_size = READ_UINT32(&buffer[4]);
 	/* Read the format. */
 	if(fmt_chunk_size < 16) {error = 2; goto CLOSE;}
 	if(!fgets(buffer, fmt_chunk_size + 1, file)) {error = 1; goto CLOSE;}
@@ -188,4 +190,5 @@ wavev){
 	}
 	return error;
 #undef READ_UINT32
+#undef READ_UINT16
 } /*}}}*/
