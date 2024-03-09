@@ -7,112 +7,137 @@
 #include <limits.h>
 #include <errno.h>
 
-/* Loads a .wav file at **path** into a newly allocated array of floats at
-**wavev** of a length written to **wavec**. This may only load a mono-
-channeled, 16-bit, linear-pcm .wav file.
+/* Loads a wave file into memory, writing a pointer to an array of samples into
+**samplev**, and the size of that array into **samplec**. The user is
+resposible for freeing the memory when done.
 
-Returns 0 on success, 1 if a standard library operation failed, in which case
-errno will not be modified after the failing call, and 2 if the format of the
-.wav file is invalid. */
-static int load_waveform(const char * path, unsigned int wavec, float * wavev);
+Returns 0 on success, 1 if an stdlib function has failed and errno was set, and
+2 if the format of the .wav file is invalid. */
+static int load_waveform(const char * path, int * samplec, uint16_t * *
+samplev);
 
-/* For each given float ranging from 0 to 1, multiply it by 16 and return the
-floored result. */
-static int print_hex(unsigned int wavec, float * wavev);
+/* Print the leftmost nibble of **length** **wavev** samples in sequence. */
+static int print_hex(unsigned int wavec, uint16_t * wavev, int length);
+
+/* Print a graph **length** **wavev** samples. */
+static int print_graph(unsigned int wavec, uint16_t * wavev, int length);
 
 /* Available options:
-	-i list input files.
-	-s specify length of printed hex sequence. */
-void main(int argc, char * * argv){
-	int option;
-	unsigned int path_count = 0;
-	char * * paths = NULL;
-	unsigned int size = 64;
+	-i specify input filepath.
+	-s specify length of printed hex sequence.
+	-c specify amount of slices to chop the file into.
+	-l specify length in simples of each slice. */
+int main(int argc, char * * argv){
+	int error = EXIT_FAILURE;
+	char * path = NULL;
+	unsigned int size = 64; /* The length in nibbles of each waveform. */
+	unsigned int count = 1; /* Amount of waveforms to slice the file into. */
+	unsigned int length = 0; /* The length in audio samples of each slice, or
+	zero if each slice expands to maximum. */
+	
+	unsigned int wavec;
+	uint16_t * wavev;
 
 	/* Parse options. */
-	while((option = getopt(argc, argv, "i:s:")) != -1){
-		unsigned int optarg_length;
+	for(int option = 0; (option = getopt(argc, argv, "i:s:c:l:")) != -1;){
 		switch(option){
-		case 'i':
-			printf("%c", '\0');
-			char * * temp = realloc(paths, path_count + 1);
-			if(!temp) goto FREE;
-			paths = temp;
-			optarg_length = strlen(optarg);
-			char * copy = malloc(optarg_length + 1);
-			if(!copy) goto FREE;
-			strcpy(copy, optarg);
-			paths[path_count] = copy;
-			path_count++;
-			break;
-		case 's':
-			errno = 0;
-			size = (unsigned int) strtol(optarg, NULL, 0);
-			if(errno) goto FREE;
-			break;
-		default: /* '?' */
-			fprintf(stderr, "Usage: %s [-i input] [-s]\n", argv[0]);
+			case 'i':
+				size_t optarg_length = strlen(optarg);
+				path = malloc(optarg_length + 1);
+				if(!path) goto EXIT;
+				strcpy(path, optarg);
+				break;
+			case 's':
+				errno = 0;
+				size = (unsigned int) strtol(optarg, NULL, 0);
+				if(errno) goto EXIT;
+				break;
+			case 'c':
+				errno = 0;
+				count = (unsigned int) strtol(optarg, NULL, 0);
+				if(errno) goto EXIT;
+				break;
+			case 'l':
+				errno = 0;
+				length = (unsigned int) strtol(optarg, NULL, 0);
+				if(errno) goto EXIT;
+				break;
+			default: /* '?' */
+				printf("%c, ", option);
+				fprintf(stderr, "Usage: %s [-i input] [-s]\n", argv[0]);
+				error = EXIT_SUCCESS;
+				goto EXIT;
 		}
 	}
 	
-	/* Print a message if no filenames were provided. */
-	if(path_count < 1){
-		fprintf(stderr, "No filenames were provided. Specify one or more input "
-		"files with -i.\n");
-		goto FREE;
+	/* Print a message if no filename was provided. */
+	if(!path){
+		fprintf(stderr, "No filenames were provided. Specify an input file "
+		"with -i.\n");
+		error = EXIT_SUCCESS;
+		goto EXIT;
 	}
-
-	/* Load waveforms. */
-	float * * waveforms = malloc(sizeof(float) * path_count);
-	int success = 1;
-	if(!waveforms) goto FREE;
-	for(int index = 0; index < path_count; index++) waveforms[index] = NULL;
-	for(int index = 0; index < path_count; index++){
-		waveforms[index] = malloc(sizeof(float) * size);
-		if(!waveforms[index]) goto FREE_WAVEFORMS;
-		int error;
-		if((error = load_waveform(paths[index], size, waveforms[
-		index]))){
-			if(error == 1)
-			if(errno == ENOENT) fprintf(stderr, "Nonexistent file: "
-			"%s\n", paths[index]);
-			if(error == 2) fprintf(stderr, "Invalid WAV file: %s\n",
-			paths[index]);
-			success = 0;
+	
+	/* Load waveform. */
+	do{
+		int load_error = load_waveform(path, &wavec, &wavev);
+		if(load_error == 1){
+			if(errno == ENOENT)
+				fprintf(stderr, "Nonexistent file: %s\n", path);
+			else
+				perror(NULL);
+			goto EXIT;
 		}
-		print_hex(size, waveforms[index]);
-	}
-	if(!success) goto FREE_WAVEFORMS;
+		if(load_error == 2){
+			fprintf(stderr, "Unsupported WAV file format: %s\n", path);
+			goto EXIT;
+		}
+	}while(0);
+	
+	/* Render and print nibbles. */
+	print_graph(wavec, wavev, size);
+	print_hex(wavec, wavev, size);
+	error = EXIT_SUCCESS;
 
-	FREE_WAVEFORMS:
-	for(int index = 0; index < path_count; index++) free(waveforms[index]);
-	free(waveforms);
-
-	FREE:
-	for(unsigned int path_index = 0; path_index < path_count; path_index++){
-		free(paths[path_index]);
-	}
-	free(paths);
+	FREE_WAVEFORM:
+	free(wavev);
+	EXIT:
+	return error;
 }
 
-static int print_hex(unsigned int wavec, float * wavev){
-	const char * hex [16] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+static int print_hex(unsigned int wavec, uint16_t * wavev, int length){
+	const char * hex [16] = {"0 ", "1 ", "2 ", "3 ", "4 ", "5 ", "6 ", "7 ", "8 ", "9 ",
 	"10", "11", "12", "13", "14", "15"};
-	for(int index = 0; index < wavec; index++){
-		printf("%s", hex[(unsigned int) (wavev[index] * 16 + 8) % 16]);
-		if(index < wavec - 1) printf(" "); else printf("\n");
+	for(int index = 0; index < length; index++){
+		int wave_index = wavec * index / length;
+		printf("%s", hex[(unsigned int) ((wavev[wave_index] & ~0x0FFF) >> 12) % 16]);
+		if(index < length - 1) printf(" "); else printf("\n");
 	}
 }
 
-static int load_waveform(const char * path, unsigned int wavec, float * /*{{{*/
-wavev){
+static int print_graph(unsigned int wavec, uint16_t * wavev, int length){
+	for(int y = 15; y >= 0; y--){
+		for(int index = 0; index < length; index++){
+			int wave_index = wavec * index / length;
+			if((wavev[wave_index] & ~0x0FFF) >> 12 > y){
+				printf("#");
+			} else {
+				printf(".");
+			}
+		}
+		printf("\n");
+	}
+	
+}
+
+static int load_waveform(const char * path, int * samplec, uint16_t * * samplev){
 /* Takes a pointer and reads four bytes following that pointer as though it were
 a little-endian unsigned 32-bit integer. */
-#define READ_UINT32(buf) ((uint32_t) *((uint8_t *) buf) + (uint32_t) (*( \
-(unsigned char *) buf + 1) << 8) + (uint32_t) (*((unsigned char *) buf + 2) \
-<< 16) + (uint32_t) (*((unsigned char *) buf + 3) << 24))
+#define READ_UINT32(buf) ((uint32_t) *((uint8_t *) (buf)) + (uint32_t) (*( \
+(unsigned char *) (buf) + 1) << 8) + (uint32_t) (*((unsigned char *) (buf) + \
+2) << 16) + (uint32_t) (*((unsigned char *) (buf) + 3) << 24))
 #define READ_UINT16(buf) ((uint16_t) *((uint8_t *) buf) + (uint16_t) (*( \
-(unsigned char *) buf + 1) << 8))
+(unsigned char *) (buf) + 1) << 8))
 	int error = 0;
 	char buffer [41];
 
@@ -130,13 +155,13 @@ a little-endian unsigned 32-bit integer. */
 	long chunk_size;
 	if(size < 8) {error = 2; goto CLOSE;}
 	if(!fgets(buffer, 9, file)) {error = 1; goto CLOSE;}
-	if(READ_UINT32(&buffer[0]) != 0x46464952) {error = 2; goto CLOSE;}
+	if(READ_UINT32(&buffer[0]) != 0x46464952) {printf("foo\n"); error = 2; goto CLOSE;}
 	chunk_size = READ_UINT32(&buffer[4]);
 
 	/* Assert that the RIFF chunk has a WAVE identifier. */
 	if(chunk_size < 4) {error = 2; goto CLOSE;}
-	if(READ_UINT32(&buffer[0]) != 0x45564157) {error = 2; goto CLOSE;}
 	if(!fgets(buffer, 5, file)) {error = 1; goto CLOSE;}
+	if(READ_UINT32(&buffer[0]) != 0x45564157) {error = 2; goto CLOSE;}
 
 	/* Read the format header. */
 	long fmt_chunk_size;
@@ -167,22 +192,30 @@ a little-endian unsigned 32-bit integer. */
 	data_length = READ_UINT32(&buffer[4]);
 	if(!data_length) {error = 2; goto CLOSE;}
 	if((data_start = ftell(file)) == -1) {error = 1; goto CLOSE;}
-
-	/* Write samples to wavev. */
-	for(unsigned int index = 0; index < wavec; index++){
-		long datum_index = index * data_length / wavec;
-		datum_index &= ~0x1;
-		datum_index += data_start;
-		if(fseek(file, datum_index, SEEK_SET) == -1) {error = 1;
-		goto CLOSE;}
-		if(!fgets(buffer, 3, file)) {error = 1; goto CLOSE;}
-		wavev[index] = (float) (int16_t) READ_UINT16(&buffer[0]) /
-		UINT16_MAX;
+	
+	/* Allocate data array. */
+	int samples_length = data_length / sizeof(uint16_t);
+	uint16_t * samples = malloc(data_length);
+	if(!samples){error = 1; goto CLOSE;}
+	
+	/* Load raw bytes into samples array. */
+	if(fread(samples, sizeof(char), data_length, file) != data_length){
+		error = 1;
+		goto DEALLOC;
+	}
+	
+	/* Reinterpret each pair of bytes as an unsigned short. */
+	for(unsigned int index = 0; index < data_length / sizeof(uint16_t); index++){
+		samples[index] = READ_UINT16(samples + index) + UINT16_MAX / 2;
 	}
 
-	/* Two bytes per sample. */
-	error = 0;
+	/* Write and return. */
+	*samplec = samples_length;
+	*samplev = samples;
+	return 0;
 
+	DEALLOC:
+	free(samples);
 	CLOSE:
 	if(fclose(file)){
 		perror("load_waveform");
