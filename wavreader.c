@@ -26,20 +26,22 @@ static int print_graph(unsigned int wavec, uint16_t * wavev, int length);
 	-i specify input filepath.
 	-s specify length of printed hex sequence.
 	-c specify amount of slices to chop the file into.
-	-l specify length in simples of each slice. */
+	-l specify length in simples of each slice.
+	-n specify instrument number. */
 int main(int argc, char * * argv){
 	int error = EXIT_FAILURE;
 	char * path = NULL;
-	unsigned int size = 64; /* The length in nibbles of each waveform. */
-	unsigned int count = 1; /* Amount of waveforms to slice the file into. */
-	unsigned int length = 0; /* The length in audio samples of each slice, or
+	int size = 64; /* The length in nibbles of each waveform. */
+	int count = 1; /* Amount of waveforms to slice the file into. */
+	int length = 0; /* The length in audio samples of each slice, or
 	zero if each slice expands to maximum. */
+	int number = 0; /* Instrument number. */
 	
 	unsigned int wavec;
 	uint16_t * wavev;
 
 	/* Parse options. */
-	for(int option = 0; (option = getopt(argc, argv, "i:s:c:l:")) != -1;){
+	for(int option = 0; (option = getopt(argc, argv, "i:s:c:l:n:m")) != -1;){
 		switch(option){
 			case 'i':
 				size_t optarg_length = strlen(optarg);
@@ -47,24 +49,31 @@ int main(int argc, char * * argv){
 				if(!path) goto EXIT;
 				strcpy(path, optarg);
 				break;
+			case 'n':
+				errno = 0;
+				number = (int) strtol(optarg, NULL, 0);
+				if(errno) goto EXIT;
+				break;
 			case 's':
 				errno = 0;
-				size = (unsigned int) strtol(optarg, NULL, 0);
+				size = (int) strtol(optarg, NULL, 0);
 				if(errno) goto EXIT;
 				break;
 			case 'c':
 				errno = 0;
-				count = (unsigned int) strtol(optarg, NULL, 0);
+				count = (int) strtol(optarg, NULL, 0);
 				if(errno) goto EXIT;
 				break;
 			case 'l':
 				errno = 0;
-				length = (unsigned int) strtol(optarg, NULL, 0);
+				length = (int) strtol(optarg, NULL, 0);
 				if(errno) goto EXIT;
 				break;
 			default: /* '?' */
-				printf("%c, ", option);
-				fprintf(stderr, "Usage: %s [-i input] [-s]\n", argv[0]);
+				fprintf(stderr, "Usage: %s [-i <input filepath>] [-s <length "
+				"of generated waveforms>] [-c <amount of slices>] [-l "
+				"<samples per slice>] [-n <instrument number>] [-m]\n",
+				argv[0]);
 				error = EXIT_SUCCESS;
 				goto EXIT;
 		}
@@ -94,9 +103,31 @@ int main(int argc, char * * argv){
 		}
 	}while(0);
 	
-	/* Render and print nibbles. */
-	print_graph(wavec, wavev, size);
-	print_hex(wavec, wavev, size);
+	do{
+		if(!length) length = wavec / count;
+		
+		for(int slice_index = 0; slice_index < count; slice_index++){
+			print_graph(length, wavev + (wavec * slice_index / count) - (length
+			* slice_index / count), size);
+			print_hex(length, wavev + (wavec * slice_index / count) - (length *
+			slice_index / count), size);
+			printf("\n");
+		}
+		
+		printf("TEXT FILE EXPORT:\n");
+		/* Data items: instrument number, volume, arppegio, pitch, hi-pitch,
+		duty, waveform length, waveform position, waveform count, name in
+		quotes. */
+		printf("INSTN163 %i -1 -1 -1 -1 -1 %i 0 %i \"New Instrument\"\n",
+		number, size, count);
+		for(int slice_index = 0; slice_index < count; slice_index++){
+			printf("N163WAVE %i %i : ", number, slice_index);
+			print_hex(length, wavev + (wavec * slice_index / count) - (length *
+			slice_index / count), size);
+			
+		}
+	} while(0);
+	
 	error = EXIT_SUCCESS;
 
 	FREE_WAVEFORM:
@@ -120,9 +151,9 @@ static int print_graph(unsigned int wavec, uint16_t * wavev, int length){
 		for(int index = 0; index < length; index++){
 			int wave_index = wavec * index / length;
 			if((wavev[wave_index] & ~0x0FFF) >> 12 > y){
-				printf("#");
+				printf("\e[37;47m   \e[0m");
 			} else {
-				printf(".");
+				printf("   ");
 			}
 		}
 		printf("\n");
