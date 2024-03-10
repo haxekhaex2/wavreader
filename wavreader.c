@@ -16,6 +16,10 @@ Returns 0 on success, 1 if an stdlib function has failed and errno was set, and
 static int load_waveform(const char * path, int * samplec, uint16_t * *
 samplev);
 
+/* Take **length** samples from **wavev** and write them as chars to file. */
+static int write_data(FILE * file, unsigned int wavec, uint16_t * wavev, int
+length);
+
 /* Print the leftmost nibble of **length** **wavev** samples in sequence. */
 static int print_hex(unsigned int wavec, uint16_t * wavev, int length);
 
@@ -24,35 +28,38 @@ static int print_graph(unsigned int wavec, uint16_t * wavev, int length);
 
 /* Available options:
 	-i specify input filepath.
+	-o specify output filepath.
 	-s specify length of printed hex sequence.
 	-c specify amount of slices to chop the file into.
-	-l specify length in simples of each slice.
-	-n specify instrument number. */
+	-l specify length in samples of each slice. */
 int main(int argc, char * * argv){
 	int error = EXIT_FAILURE;
 	char * path = NULL;
+	char * output_path = NULL;
+	FILE * output_file = NULL;
 	int size = 64; /* The length in nibbles of each waveform. */
 	int count = 1; /* Amount of waveforms to slice the file into. */
 	int length = 0; /* The length in audio samples of each slice, or
 	zero if each slice expands to maximum. */
-	int number = 0; /* Instrument number. */
 	
 	unsigned int wavec;
 	uint16_t * wavev;
 
 	/* Parse options. */
-	for(int option = 0; (option = getopt(argc, argv, "i:s:c:l:n:m")) != -1;){
+	for(int option = 0; (option = getopt(argc, argv, "i:o:s:c:l:")) != -1;){
+		size_t optarg_length;
 		switch(option){
 			case 'i':
-				size_t optarg_length = strlen(optarg);
+				optarg_length = strlen(optarg);
 				path = malloc(optarg_length + 1);
 				if(!path) goto EXIT;
 				strcpy(path, optarg);
 				break;
-			case 'n':
-				errno = 0;
-				number = (int) strtol(optarg, NULL, 0);
-				if(errno) goto EXIT;
+			case 'o':
+				optarg_length = strlen(optarg);
+				output_path = malloc(optarg_length + 1);
+				if(!output_path) goto EXIT;
+				strcpy(output_path, optarg);
 				break;
 			case 's':
 				errno = 0;
@@ -103,9 +110,11 @@ int main(int argc, char * * argv){
 		}
 	}while(0);
 	
+	/* Set length to maximum if none was provided. */
+	if(!length) length = wavec / count;
+	
+	/* Print graphs. */
 	do{
-		if(!length) length = wavec / count;
-		
 		for(int slice_index = 0; slice_index < count; slice_index++){
 			print_graph(length, wavev + (wavec * slice_index / count) - (length
 			* slice_index / count), size);
@@ -113,35 +122,61 @@ int main(int argc, char * * argv){
 			slice_index / count), size);
 			printf("\n");
 		}
-		
-		printf("TEXT FILE EXPORT:\n");
-		/* Data items: instrument number, volume, arppegio, pitch, hi-pitch,
-		duty, waveform length, waveform position, waveform count, name in
-		quotes. */
-		printf("INSTN163 %i -1 -1 -1 -1 -1 %i 0 %i \"New Instrument\"\n",
-		number, size, count);
-		for(int slice_index = 0; slice_index < count; slice_index++){
-			printf("N163WAVE %i %i : ", number, slice_index);
-			print_hex(length, wavev + (wavec * slice_index / count) - (length *
-			slice_index / count), size);
-			
-		}
 	} while(0);
 	
+	/* Write to output file. */
+	if(output_path){
+		output_file = fopen(output_path, "w");
+		if(!output_file){perror(NULL); goto FREE_WAVEFORM;}
+		
+		fprintf(output_file, "FTI2.4"); /* Print version header. */
+		fprintf(output_file, "%c", 5); /* Print instrument type: Namco is 5. */
+		fprintf(output_file, "%c%c%c%c", 14, 0, 0, 0);
+		fprintf(output_file, "New Instrument");
+		fprintf(output_file, "%c%c%c%c%c%c", 5, 0, 0, 0, 0, 0);
+		fprintf(output_file, "%c%c%c%c", size, 0, 0, 0);
+		fprintf(output_file, "%c%c%c%c", 0, 0, 0, 0);
+		fprintf(output_file, "%c%c%c%c", count, 0, 0, 0);
+		
+		for(int slice_index = 0; slice_index < count; slice_index++){
+			write_data(output_file, length, wavev + (wavec * slice_index /
+			count) - (length * slice_index / count), size);
+		}
+	}
+	
 	error = EXIT_SUCCESS;
-
+	
+	/* Unwinding allocations. */
+	CLOSE_FILE:
+	if(output_file){
+		if(fclose(output_file)){
+			perror(NULL);
+			exit(1);
+		}
+	}
+	
 	FREE_WAVEFORM:
 	free(wavev);
 	EXIT:
 	return error;
 }
 
-static int print_hex(unsigned int wavec, uint16_t * wavev, int length){
-	const char * hex [16] = {"0 ", "1 ", "2 ", "3 ", "4 ", "5 ", "6 ", "7 ", "8 ", "9 ",
-	"10", "11", "12", "13", "14", "15"};
+static int write_data(FILE * file, unsigned int wavec, uint16_t * wavev, int
+length){
 	for(int index = 0; index < length; index++){
 		int wave_index = wavec * index / length;
-		printf("%s", hex[(unsigned int) ((wavev[wave_index] & ~0x0FFF) >> 12) % 16]);
+		fprintf(file, "%c", (unsigned char) ((wavev[wave_index] & ~0x0FFF) >>
+		12) % 16);
+	}
+}
+
+static int print_hex(unsigned int wavec, uint16_t * wavev, int length){
+	const char * hex [16] = {"0 ", "1 ", "2 ", "3 ", "4 ", "5 ", "6 ", "7 ",
+	"8 ", "9 ", "10", "11", "12", "13", "14", "15"};
+	for(int index = 0; index < length; index++){
+		int wave_index = wavec * index / length;
+		printf("%s", hex[(unsigned int) ((wavev[wave_index] & ~0x0FFF) >> 12) %
+		16]);
 		if(index < length - 1) printf(" "); else printf("\n");
 	}
 }
@@ -255,4 +290,4 @@ a little-endian unsigned 32-bit integer. */
 	return error;
 #undef READ_UINT32
 #undef READ_UINT16
-} /*}}}*/
+}
