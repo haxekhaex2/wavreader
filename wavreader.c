@@ -7,6 +7,12 @@
 #include <limits.h>
 #include <errno.h>
 
+char * option_input = NULL;
+char * option_output = NULL;
+int option_size = 16;
+int option_count = 16;
+int option_length = 0;	
+
 /* Loads a wave file into memory, writing a pointer to an array of samples into
 **samplev**, and the size of that array into **samplec**. The user is
 resposible for freeing the memory when done.
@@ -27,20 +33,14 @@ static int print_hex(unsigned int wavec, uint16_t * wavev, int length);
 static int print_graph(unsigned int wavec, uint16_t * wavev, int length);
 
 /* Available options:
-	-i specify input filepath.
-	-o specify output filepath.
-	-s specify length of printed hex sequence.
-	-c specify amount of slices to chop the file into.
-	-l specify length in samples of each slice. */
+	-i specify input filepath. May be any string.
+	-o specify output filepath. May be any string.
+	-s specify length of printed hex sequence. Any positive integer.
+	-c specify amount of slices to chop the file into. Any positive integer.
+	-l specify length in samples of each slice. Any positive integer. */
 int main(int argc, char * * argv){
 	int error = EXIT_FAILURE;
-	char * path = NULL;
-	char * output_path = NULL;
 	FILE * output_file = NULL;
-	int size = 64; /* The length in nibbles of each waveform. */
-	int count = 1; /* Amount of waveforms to slice the file into. */
-	int length = 0; /* The length in audio samples of each slice, or
-	zero if each slice expands to maximum. */
 	
 	unsigned int wavec;
 	uint16_t * wavev;
@@ -51,30 +51,57 @@ int main(int argc, char * * argv){
 		switch(option){
 			case 'i':
 				optarg_length = strlen(optarg);
-				path = malloc(optarg_length + 1);
-				if(!path) goto EXIT;
-				strcpy(path, optarg);
+				option_input = malloc(optarg_length + 1);
+				if(!option_input) goto EXIT;
+				strcpy(option_input, optarg);
 				break;
 			case 'o':
 				optarg_length = strlen(optarg);
-				output_path = malloc(optarg_length + 1);
-				if(!output_path) goto EXIT;
-				strcpy(output_path, optarg);
+				option_output = malloc(optarg_length + 1);
+				if(!option_output) goto EXIT;
+				strcpy(option_output, optarg);
 				break;
 			case 's':
 				errno = 0;
-				size = (int) strtol(optarg, NULL, 0);
-				if(errno) goto EXIT;
+				option_size = (int) strtol(optarg, NULL, 0);
+				if(errno){
+					fprintf(stderr, "Invalid value given for option: -%c.\n",
+					option);
+					goto EXIT;
+				}
+				if(option_size < 0){
+					fprintf(stderr, "Invalid value given for option: -%c.\n",
+					option);
+					goto EXIT;
+				}
 				break;
 			case 'c':
 				errno = 0;
-				count = (int) strtol(optarg, NULL, 0);
-				if(errno) goto EXIT;
+				option_count = (int) strtol(optarg, NULL, 0);
+				if(errno){
+					fprintf(stderr, "Invalid value given for option: -%c.\n",
+					option);
+					goto EXIT;
+				}
+				if(option_count < 0){
+					fprintf(stderr, "Invalid value given for option: -%c.\n",
+					option);
+					goto EXIT;
+				}
 				break;
 			case 'l':
 				errno = 0;
-				length = (int) strtol(optarg, NULL, 0);
-				if(errno) goto EXIT;
+				option_length = (int) strtol(optarg, NULL, 0);
+				if(errno){
+					fprintf(stderr, "Invalid value given for option: -%c.\n",
+					option);
+					goto EXIT;
+				}
+				if(option_length < 0){
+					fprintf(stderr, "Invalid value given for option: -%c.\n",
+					option);
+					goto EXIT;
+				}
 				break;
 			default: /* '?' */
 				fprintf(stderr, "Usage: %s [-i <input filepath>] [-s <length "
@@ -87,7 +114,7 @@ int main(int argc, char * * argv){
 	}
 	
 	/* Print a message if no filename was provided. */
-	if(!path){
+	if(!option_input){
 		fprintf(stderr, "No filenames were provided. Specify an input file "
 		"with -i.\n");
 		error = EXIT_SUCCESS;
@@ -96,37 +123,39 @@ int main(int argc, char * * argv){
 	
 	/* Load waveform. */
 	do{
-		int load_error = load_waveform(path, &wavec, &wavev);
+		int load_error = load_waveform(option_input, &wavec, &wavev);
 		if(load_error == 1){
 			if(errno == ENOENT)
-				fprintf(stderr, "Nonexistent file: %s\n", path);
+				fprintf(stderr, "Nonexistent file: %s\n", option_input);
 			else
 				perror(NULL);
 			goto EXIT;
 		}
 		if(load_error == 2){
-			fprintf(stderr, "Unsupported WAV file format: %s\n", path);
+			fprintf(stderr, "Unsupported WAV file format: %s\n", option_input);
 			goto EXIT;
 		}
 	}while(0);
 	
 	/* Set length to maximum if none was provided. */
-	if(!length) length = wavec / count;
+	if(!option_length) option_length = wavec / option_count;
 	
 	/* Print graphs. */
 	do{
-		for(int slice_index = 0; slice_index < count; slice_index++){
-			print_graph(length, wavev + (wavec * slice_index / count) - (length
-			* slice_index / count), size);
-			print_hex(length, wavev + (wavec * slice_index / count) - (length *
-			slice_index / count), size);
+		for(int slice_index = 0; slice_index < option_count; slice_index++){
+			print_graph(option_length, wavev + (wavec * slice_index /
+			option_count) - (option_length
+			* slice_index / option_count), option_size);
+			print_hex(option_length, wavev + (wavec * slice_index /
+			option_count) - (option_length *
+			slice_index / option_count), option_size);
 			printf("\n");
 		}
 	} while(0);
 	
 	/* Write to output file. */
-	if(output_path){
-		output_file = fopen(output_path, "w");
+	if(option_output){
+		output_file = fopen(option_output, "w");
 		if(!output_file){perror(NULL); goto FREE_WAVEFORM;}
 		
 		fprintf(output_file, "FTI2.4"); /* Print version header. */
@@ -134,13 +163,14 @@ int main(int argc, char * * argv){
 		fprintf(output_file, "%c%c%c%c", 14, 0, 0, 0);
 		fprintf(output_file, "New Instrument");
 		fprintf(output_file, "%c%c%c%c%c%c", 5, 0, 0, 0, 0, 0);
-		fprintf(output_file, "%c%c%c%c", size, 0, 0, 0);
+		fprintf(output_file, "%c%c%c%c", option_size, 0, 0, 0);
 		fprintf(output_file, "%c%c%c%c", 0, 0, 0, 0);
-		fprintf(output_file, "%c%c%c%c", count, 0, 0, 0);
+		fprintf(output_file, "%c%c%c%c", option_count, 0, 0, 0);
 		
-		for(int slice_index = 0; slice_index < count; slice_index++){
-			write_data(output_file, length, wavev + (wavec * slice_index /
-			count) - (length * slice_index / count), size);
+		for(int slice_index = 0; slice_index < option_count; slice_index++){
+			write_data(output_file, option_length, wavev + (wavec * slice_index
+			/ option_count) - (option_length * slice_index / option_count),
+			option_size);
 		}
 	}
 	
@@ -196,9 +226,10 @@ static int print_graph(unsigned int wavec, uint16_t * wavev, int length){
 	
 }
 
-static int load_waveform(const char * path, int * samplec, uint16_t * * samplev){
-/* Takes a pointer and reads four bytes following that pointer as though it were
-a little-endian unsigned 32-bit integer. */
+static int load_waveform(const char * path, int * samplec, uint16_t * *
+samplev){
+/* Takes a pointer and reads four bytes following that pointer as though it
+were a little-endian unsigned 32-bit integer. */
 #define READ_UINT32(buf) ((uint32_t) *((uint8_t *) (buf)) + (uint32_t) (*( \
 (unsigned char *) (buf) + 1) << 8) + (uint32_t) (*((unsigned char *) (buf) + \
 2) << 16) + (uint32_t) (*((unsigned char *) (buf) + 3) << 24))
@@ -221,7 +252,8 @@ a little-endian unsigned 32-bit integer. */
 	long chunk_size;
 	if(size < 8) {error = 2; goto CLOSE;}
 	if(!fgets(buffer, 9, file)) {error = 1; goto CLOSE;}
-	if(READ_UINT32(&buffer[0]) != 0x46464952) {printf("foo\n"); error = 2; goto CLOSE;}
+	if(READ_UINT32(&buffer[0]) != 0x46464952) {printf("foo\n"); error = 2; goto
+	CLOSE;}
 	chunk_size = READ_UINT32(&buffer[4]);
 
 	/* Assert that the RIFF chunk has a WAVE identifier. */
@@ -271,7 +303,8 @@ a little-endian unsigned 32-bit integer. */
 	}
 	
 	/* Reinterpret each pair of bytes as an unsigned short. */
-	for(unsigned int index = 0; index < data_length / sizeof(uint16_t); index++){
+	for(unsigned int index = 0; index < data_length / sizeof(uint16_t);
+	index++){
 		samples[index] = READ_UINT16(samples + index) + UINT16_MAX / 2;
 	}
 
