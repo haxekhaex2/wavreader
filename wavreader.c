@@ -133,7 +133,6 @@ int main(int argc, char * * argv){
 	if(!option_input){
 		fprintf(stderr, "No filenames were provided. Specify an input "
 		"file with -i.\n");
-		error = EXIT_SUCCESS;
 		goto EXIT;
 	}
 	
@@ -157,6 +156,20 @@ int main(int argc, char * * argv){
 	
 	/* Set length to maximum if none was provided. */
 	if(!option_length) option_length = wavec / option_count;
+	
+	/* Throw error if length option is impossible. */
+	if(option_extend){
+		if(length > wavec){
+			fprintf(stderr, "Requested audio length is longer "
+			"than file.");
+			goto EXIT;
+		}
+	}else{
+		if(length > wavec / option_count){
+			fprintf(stderr, "Requested audio length would be "
+			"longer than a slice.");
+		}
+	}
 	
 	/* Print graphs. */
 	do{
