@@ -16,3 +16,5 @@ The above command splits the audio file into 64 regions, each 100 samples long, 
 ``-c`` count of regions to split the .wav file into.
 
 ``-l`` length in samples of each region each waveform will sample from.
+
+``-e`` if set, extend the start positions of each slice to minimize the unused space at the end.
