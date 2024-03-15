@@ -2,7 +2,7 @@
 This is a small command line utility I wrote to generate Famitracker Namco 163 instrument files out of .wav files.
 
 ### Usage:
-``wavreader -i "input.wav" -o "output.fti -s 64 -c 16 -l 100``
+``wavreader -i "input.wav" -o "output.fti" -s 64 -c 16 -l 100``
 
 The above command splits the audio file into 64 regions, each 100 samples long, and generates out of them an N163 instrument file with 16 waveforms.
 
