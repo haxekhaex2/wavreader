@@ -45,7 +45,7 @@ static int print_graph(unsigned int wavec, uint16_t * wavev, int length);
 int main(int argc, char * * argv){
 	int error = EXIT_FAILURE;
 	FILE * output_file = NULL;
-	
+
 	unsigned int wavec;
 	uint16_t * wavev;
 
@@ -128,14 +128,14 @@ int main(int argc, char * * argv){
 				goto EXIT;
 		}
 	}
-	
+
 	/* Print a message if no filename was provided. */
 	if(!option_input){
 		fprintf(stderr, "No filenames were provided. Specify an input "
 		"file with -i.\n");
 		goto EXIT;
 	}
-	
+
 	/* Load waveform. */
 	do{
 		int load_error = load_waveform(option_input, &wavec, &wavev);
@@ -153,10 +153,10 @@ int main(int argc, char * * argv){
 			goto EXIT;
 		}
 	}while(0);
-	
+
 	/* Set length to maximum if none was provided. */
 	if(!option_length) option_length = wavec / option_count;
-	
+
 	/* Throw error if length option is impossible. */
 	if(option_extend){
 		if(length > wavec){
@@ -170,7 +170,7 @@ int main(int argc, char * * argv){
 			"longer than a slice.");
 		}
 	}
-	
+
 	/* Print graphs. */
 	do{
 		for(int slice_index = 0; slice_index < option_count;
@@ -190,16 +190,16 @@ int main(int argc, char * * argv){
 				print_hex(option_length, wavev + (wavec *
 				slice_index /	option_count), option_size);
 			}
-			
+
 			printf("\n");
 		}
 	} while(0);
-	
+
 	/* Write to output file. */
 	if(option_output){
 		output_file = fopen(option_output, "w");
 		if(!output_file){perror(NULL); goto FREE_WAVEFORM;}
-		
+
 		fprintf(output_file, "FTI2.4");
 		fprintf(output_file, "%c", 5);
 		fprintf(output_file, "%c%c%c%c", 14, 0, 0, 0);
@@ -208,7 +208,7 @@ int main(int argc, char * * argv){
 		fprintf(output_file, "%c%c%c%c", option_size, 0, 0, 0);
 		fprintf(output_file, "%c%c%c%c", 0, 0, 0, 0);
 		fprintf(output_file, "%c%c%c%c", option_count, 0, 0, 0);
-		
+
 		for(int slice_index = 0; slice_index < option_count;
 		slice_index++){
 			if(option_extend){
@@ -224,9 +224,9 @@ int main(int argc, char * * argv){
 			}
 		}
 	}
-	
+
 	error = EXIT_SUCCESS;
-	
+
 	/* Unwinding allocations. */
 	CLOSE_FILE:
 	if(output_file){
@@ -235,7 +235,7 @@ int main(int argc, char * * argv){
 			exit(1);
 		}
 	}
-	
+
 	FREE_WAVEFORM:
 	free(wavev);
 	EXIT:
@@ -274,7 +274,7 @@ static int print_graph(unsigned int wavec, uint16_t * wavev, int length){
 		}
 		printf("\n");
 	}
-	
+
 }
 
 static int load_waveform(const char * path, int * samplec, uint16_t * *
@@ -303,8 +303,7 @@ were a little-endian unsigned 32-bit integer. */
 	long chunk_size;
 	if(size < 8) {error = 2; goto CLOSE;}
 	if(!fgets(buffer, 9, file)) {error = 1; goto CLOSE;}
-	if(READ_UINT32(&buffer[0]) != 0x46464952) {printf("foo\n"); error = 2;
-	goto CLOSE;}
+	if(READ_UINT32(&buffer[0]) != 0x46464952) {error = 2; goto CLOSE;}
 	chunk_size = READ_UINT32(&buffer[4]);
 
 	/* Assert that the RIFF chunk has a WAVE identifier. */
@@ -341,18 +340,18 @@ were a little-endian unsigned 32-bit integer. */
 	data_length = READ_UINT32(&buffer[4]);
 	if(!data_length) {error = 2; goto CLOSE;}
 	if((data_start = ftell(file)) == -1) {error = 1; goto CLOSE;}
-	
+
 	/* Allocate data array. */
 	int samples_length = data_length / sizeof(uint16_t);
 	uint16_t * samples = malloc(data_length);
 	if(!samples){error = 1; goto CLOSE;}
-	
+
 	/* Load raw bytes into samples array. */
 	if(fread(samples, sizeof(char), data_length, file) != data_length){
 		error = 1;
 		goto DEALLOC;
 	}
-	
+
 	/* Reinterpret each pair of bytes as an unsigned short. */
 	for(unsigned int index = 0; index < data_length / sizeof(uint16_t);
 	index++){
